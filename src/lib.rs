@@ -296,13 +296,8 @@ fn display_data_msg(data: &[u8], msg_title: impl Display, ctx: Context) {
         // 直接打印输出
         let mut out_bytes: Vec<u8> = vec![];
 
-        let mask_bytes = data.iter().any(|x| {
-            match *x {
-                // 有特殊字段, 不适合在控制台显示
-                0 | 0x1b => true,
-                _ => false,
-            }
-        });
+        let utf8_rs = String::from_utf8(data.to_vec());
+        let mask_bytes = utf8_rs.is_err();
 
         if ctx.args.bytes_data {
             out_bytes.extend(
@@ -315,7 +310,7 @@ fn display_data_msg(data: &[u8], msg_title: impl Display, ctx: Context) {
             if mask_bytes {
                 out_bytes.extend("MASK_BYTES...TO SEE HEX".as_bytes());
             } else {
-                out_bytes.extend(data);
+                out_bytes.extend(utf8_rs.unwrap().as_bytes());
             }
             out_bytes.extend("\n-----END BYTES-----\n".yellow().to_string().as_bytes());
         }
