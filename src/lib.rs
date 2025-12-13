@@ -308,7 +308,7 @@ fn display_data_msg(data: &[u8], msg_title: impl Display, ctx: Context) {
                     .as_bytes(),
             );
             if mask_bytes {
-                out_bytes.extend("MASK_BYTES...TO SEE HEX".as_bytes());
+                out_bytes.extend("MASK_BYTES1...TO SEE HEX".red().to_string().as_bytes());
             } else {
                 out_bytes.extend(utf8_rs.unwrap().as_bytes());
             }
