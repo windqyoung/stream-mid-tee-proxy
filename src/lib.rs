@@ -58,6 +58,10 @@ pub struct Args {
     /// hex显示使用的行宽
     #[arg(long, default_value_t = 32)]
     hex_line: usize,
+
+    /// 是否要hex下方显示ascii信息
+    #[arg(long, default_value_t = false)]
+    hex_ascii_bottom: bool,
 }
 
 #[derive(Clone)]
@@ -234,7 +238,6 @@ async fn bid_copy_stream<S1, S2>(
         ctx,
     )
     .await;
-
 }
 
 async fn copy_reader_to_writer<D, R, W>(mut r: R, mut w: W, msg_title: D, ctx: Context)
@@ -331,10 +334,18 @@ fn display_data_msg(data: &[u8], msg_title: impl Display, ctx: Context) {
                 let mut ascii_line = vec![];
                 let mut hex_line = vec![];
 
+                let mut hex_ascii_line: Vec<u8> = vec![];
+
                 for b in chunk {
                     hex_line.extend(format!("{:02x} ", b).as_bytes());
 
-                    ascii_line.push(if b.is_ascii_graphic() { *b } else { '.' as u8 });
+                    let a_char = if b.is_ascii_graphic() { *b } else { '.' as u8 };
+
+                    if ctx.args.hex_ascii_bottom {
+                        hex_ascii_line.extend(format!("{:3}", a_char as char).as_bytes());
+                    }
+
+                    ascii_line.push(a_char);
                 }
 
                 out_bytes.extend(&hex_line);
@@ -346,6 +357,11 @@ fn display_data_msg(data: &[u8], msg_title: impl Display, ctx: Context) {
 
                 out_bytes.extend(&ascii_line);
                 out_bytes.extend(b"\r\n");
+
+                if ctx.args.hex_ascii_bottom {
+                    out_bytes.extend(hex_ascii_line);
+                    out_bytes.extend(b"\r\n");
+                }
             }
 
             out_bytes.extend("\n-----END HEX-----\n".yellow().to_string().as_bytes());
