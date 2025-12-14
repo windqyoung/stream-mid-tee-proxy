@@ -309,11 +309,7 @@ fn display_data_msg(data: &[u8], msg_title: impl Display, ctx: Context) {
                 .to_string()
                 .as_bytes(),
         );
-        if mask_bytes {
-            out_bytes.extend("MASK_BYTES1...TO SEE HEX".red().to_string().as_bytes());
-        } else {
-            out_bytes.extend(utf8_rs.unwrap().as_bytes());
-        }
+        out_bytes.extend(String::from_utf8_lossy(data).as_bytes());
         out_bytes.extend("\n-----END BYTES-----\n".yellow().to_string().as_bytes());
     }
 
@@ -331,8 +327,14 @@ fn display_data_msg(data: &[u8], msg_title: impl Display, ctx: Context) {
             let mut ascii_line = vec![];
             let mut hex_line = vec![];
 
-            for b in chunk {
-                hex_line.extend(format!("{:02x} ", b).as_bytes());
+            for (idx, b) in chunk.iter().enumerate() {
+                hex_line.extend(format!("{:02x}", b).as_bytes());
+
+                hex_line.push(if idx % 8 == 7 {
+                    '|' as u8
+                } else {
+                    ' ' as u8
+                });
 
                 let a_char = if b.is_ascii_graphic() { *b } else { '.' as u8 };
 
@@ -374,9 +376,9 @@ pub fn chunk_to_hex_ascii(chunk: &[u8]) -> Vec<u8> {
         let c = b as char;
         idx += 1;
         match c {
-            '\r' | '\n' | '\t'  => {
+            '\r' | '\n' | '\t' => {
                 hex_ascii_line.extend(format!("{} ", c.escape_default()).as_bytes())
-            },
+            }
             '\x1b' => {
                 hex_ascii_line.extend("\\e ".as_bytes());
             }
