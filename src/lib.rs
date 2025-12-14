@@ -274,13 +274,14 @@ async fn copy_reader_to_writer<D, R, W>(
 {
     let mut buf = vec![0; 65536];
     loop {
+
+        let rs = r.read(&mut buf).await;
+
         let use_data_id = {
             let mut guard = data_id.lock().expect("data_id锁中毒");
             *guard += 1;
             *guard
         };
-
-        let rs = r.read(&mut buf).await;
 
         match rs {
             Ok(0) => {
