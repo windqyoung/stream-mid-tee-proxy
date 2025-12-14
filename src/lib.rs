@@ -77,11 +77,26 @@ impl Context {
 }
 
 pub async fn cli_run(args: Args) -> CliResult {
-    let server_addr: SocketAddr = args.listen_addr.parse()?;
+    let mut server_addr: SocketAddr = args.listen_addr.parse()?;
     // 提前解析, 防止后续错误
     let remove_server = args.remote_target.to_socket_addrs()?;
 
-    let server = TcpListener::bind(server_addr).await?;
+    let server = 'server: {
+        for port_offset in 0..100 {
+            server_addr.set_port(server_addr.port() + port_offset);
+            let bind_rs = TcpListener::bind(server_addr).await;
+            match bind_rs {
+                Ok(bind) => {
+                    break 'server bind;
+                }
+                Err(_) => {
+                    continue;
+                }
+            }
+        }
+
+        panic!("bind error, 未找到相应的端口");
+    };
 
     show_msg(args.quiet, || {
         log(format!("服务器启动: {} -> {:?}", server_addr, remove_server).green());
@@ -330,11 +345,7 @@ fn display_data_msg(data: &[u8], msg_title: impl Display, ctx: Context) {
             for (idx, b) in chunk.iter().enumerate() {
                 hex_line.extend(format!("{:02x}", b).as_bytes());
 
-                hex_line.push(if idx % 8 == 7 {
-                    '|' as u8
-                } else {
-                    ' ' as u8
-                });
+                hex_line.push(if idx % 8 == 7 { '|' as u8 } else { ' ' as u8 });
 
                 let a_char = if b.is_ascii_graphic() { *b } else { '.' as u8 };
 
