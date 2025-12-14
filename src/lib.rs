@@ -259,7 +259,10 @@ where
             }
             Ok(size) => {
                 let data = &buf[..size];
-                display_data_msg(data, &msg_title, ctx.clone());
+                show_msg(ctx.args.quiet, || {
+                    display_data_msg(data, &msg_title, ctx.clone());
+                });
+
                 let wrs = w.write_all(data).await;
                 match wrs {
                     Ok(_) => {}
@@ -288,82 +291,104 @@ where
 }
 
 fn display_data_msg(data: &[u8], msg_title: impl Display, ctx: Context) {
-    show_msg(ctx.args.quiet, || {
-        log_with_req_id(
-            ctx.req_id,
-            format!("{} LEN={}", msg_title, data.len().to_string().green()),
+    log_with_req_id(
+        ctx.req_id,
+        format!("{} LEN={}", msg_title, data.len().to_string().green()),
+    );
+    // 直接打印输出
+    let mut out_bytes: Vec<u8> = vec![];
+
+    let utf8_rs = String::from_utf8(data.to_vec());
+    let mask_bytes = utf8_rs.is_err();
+
+    if ctx.args.bytes_data {
+        out_bytes.extend(
+            "\n-----BEGIN BYTES-----\n"
+                .to_string()
+                .green()
+                .to_string()
+                .as_bytes(),
         );
-        // 直接打印输出
-        let mut out_bytes: Vec<u8> = vec![];
-
-        let utf8_rs = String::from_utf8(data.to_vec());
-        let mask_bytes = utf8_rs.is_err();
-
-        if ctx.args.bytes_data {
-            out_bytes.extend(
-                "\n-----BEGIN BYTES-----\n"
-                    .to_string()
-                    .green()
-                    .to_string()
-                    .as_bytes(),
-            );
-            if mask_bytes {
-                out_bytes.extend("MASK_BYTES1...TO SEE HEX".red().to_string().as_bytes());
-            } else {
-                out_bytes.extend(utf8_rs.unwrap().as_bytes());
-            }
-            out_bytes.extend("\n-----END BYTES-----\n".yellow().to_string().as_bytes());
+        if mask_bytes {
+            out_bytes.extend("MASK_BYTES1...TO SEE HEX".red().to_string().as_bytes());
+        } else {
+            out_bytes.extend(utf8_rs.unwrap().as_bytes());
         }
+        out_bytes.extend("\n-----END BYTES-----\n".yellow().to_string().as_bytes());
+    }
 
-        if ctx.args.hex || (mask_bytes && ctx.args.bytes_data) {
-            let line_len: usize = ctx.args.hex_line;
+    if ctx.args.hex || (mask_bytes && ctx.args.bytes_data) {
+        let line_len: usize = ctx.args.hex_line;
 
-            out_bytes.extend(
-                "\n-----BEGIN HEX-----\n"
-                    .to_string()
-                    .green()
-                    .to_string()
-                    .as_bytes(),
-            );
-            for chunk in data.chunks(line_len) {
-                let mut ascii_line = vec![];
-                let mut hex_line = vec![];
+        out_bytes.extend(
+            "\n-----BEGIN HEX-----\n"
+                .to_string()
+                .green()
+                .to_string()
+                .as_bytes(),
+        );
+        for chunk in data.chunks(line_len) {
+            let mut ascii_line = vec![];
+            let mut hex_line = vec![];
 
-                let mut hex_ascii_line: Vec<u8> = vec![];
+            for b in chunk {
+                hex_line.extend(format!("{:02x} ", b).as_bytes());
 
-                for b in chunk {
-                    hex_line.extend(format!("{:02x} ", b).as_bytes());
+                let a_char = if b.is_ascii_graphic() { *b } else { '.' as u8 };
 
-                    let a_char = if b.is_ascii_graphic() { *b } else { '.' as u8 };
+                ascii_line.push(a_char);
+            }
 
-                    if ctx.args.hex_ascii_bottom {
-                        hex_ascii_line.extend(format!("{:3}", a_char as char).as_bytes());
-                    }
+            out_bytes.extend(&hex_line);
 
-                    ascii_line.push(a_char);
-                }
+            let c_len = chunk.len();
+            if c_len > 0 {
+                let pad_len = line_len - c_len;
+                out_bytes.extend("   ".repeat(pad_len).as_bytes())
+            }
 
-                out_bytes.extend(&hex_line);
-                let c_len = chunk.len();
-                if c_len > 0 {
-                    let pad_len = line_len - c_len;
-                    out_bytes.extend("   ".repeat(pad_len).as_bytes())
-                }
+            out_bytes.extend(&ascii_line);
+            out_bytes.extend(b"\r\n");
 
-                out_bytes.extend(&ascii_line);
+            if ctx.args.hex_ascii_bottom {
+                let hex_ascii_line = chunk_to_hex_ascii(chunk);
+
+                out_bytes.extend(hex_ascii_line);
                 out_bytes.extend(b"\r\n");
-
-                if ctx.args.hex_ascii_bottom {
-                    out_bytes.extend(hex_ascii_line);
-                    out_bytes.extend(b"\r\n");
-                }
             }
-
-            out_bytes.extend("\n-----END HEX-----\n".yellow().to_string().as_bytes());
         }
 
-        let _ = stdout().write_all(&out_bytes);
-    });
+        out_bytes.extend("\n-----END HEX-----\n".yellow().to_string().as_bytes());
+    }
+
+    let _ = stdout().write_all(&out_bytes);
+}
+
+pub fn chunk_to_hex_ascii(chunk: &[u8]) -> Vec<u8> {
+    let mut hex_ascii_line: Vec<u8> = vec![];
+    // 计算 utf8 可显示的字符
+
+    let mut idx = 0;
+    while idx < chunk.len() {
+        let b = chunk[idx];
+        let c = b as char;
+        idx += 1;
+        match c {
+            '\r' | '\n' | '\t'  => {
+                hex_ascii_line.extend(format!("{} ", c.escape_default()).as_bytes())
+            },
+            '\x1b' => {
+                hex_ascii_line.extend("\\e ".as_bytes());
+            }
+            graphic if c.is_ascii_graphic() => {
+                hex_ascii_line.extend(format!("{}  ", graphic).as_bytes());
+            }
+            _ => {
+                hex_ascii_line.extend(".  ".as_bytes());
+            }
+        }
+    }
+    hex_ascii_line
 }
 
 #[derive(Debug)]
