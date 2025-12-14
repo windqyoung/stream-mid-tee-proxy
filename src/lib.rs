@@ -12,7 +12,7 @@ use rustls::{ClientConfig, DigitallySignedStruct, Error, SignatureScheme};
 use std::fmt::Display;
 use std::io::{Write, stdout};
 use std::net::{SocketAddr, ToSocketAddrs};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, split};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::spawn;
@@ -145,8 +145,9 @@ where
     }
 }
 
-fn log_with_req_id<D>(req_id: u64, msg: D)
+fn log_with_req_id<ID, D>(req_id: ID, msg: D)
 where
+    ID: Display,
     D: Display,
 {
     let msg = format!("[req={}]{}", req_id.to_string().green(), msg);
@@ -222,7 +223,10 @@ async fn bid_copy_stream<S1, S2>(
 
     let (remote_reader, remote_writer) = split(remote_stream);
 
+    let data_id = Arc::new(Mutex::new(0));
+
     {
+        let data_id = Arc::clone(&data_id);
         let ctx = ctx.clone();
         let local_addr = local_addr.clone();
         let remote_addr = remote_addr.clone();
@@ -237,6 +241,7 @@ async fn bid_copy_stream<S1, S2>(
                     remote_addr.to_string().yellow(),
                 ),
                 ctx,
+                data_id,
             )
             .await;
         });
@@ -251,19 +256,32 @@ async fn bid_copy_stream<S1, S2>(
             remote_addr.to_string().green(),
         ),
         ctx,
+        data_id,
     )
     .await;
 }
 
-async fn copy_reader_to_writer<D, R, W>(mut r: R, mut w: W, msg_title: D, ctx: Context)
-where
+async fn copy_reader_to_writer<D, R, W>(
+    mut r: R,
+    mut w: W,
+    msg_title: D,
+    ctx: Context,
+    data_id: Arc<Mutex<u64>>,
+) where
     D: Display,
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
     let mut buf = vec![0; 65536];
     loop {
+        let use_data_id = {
+            let mut guard = data_id.lock().expect("data_id锁中毒");
+            *guard += 1;
+            *guard
+        };
+
         let rs = r.read(&mut buf).await;
+
         match rs {
             Ok(0) => {
                 show_msg(ctx.args.quiet, || {
@@ -275,7 +293,7 @@ where
             Ok(size) => {
                 let data = &buf[..size];
                 show_msg(ctx.args.quiet, || {
-                    display_data_msg(data, &msg_title, ctx.clone());
+                    display_data_msg(data, &msg_title, ctx.clone(), use_data_id);
                 });
 
                 let wrs = w.write_all(data).await;
@@ -305,9 +323,10 @@ where
     }
 }
 
-fn display_data_msg(data: &[u8], msg_title: impl Display, ctx: Context) {
+fn display_data_msg(data: &[u8], msg_title: impl Display, ctx: Context, data_id: u64) {
+    let req_id = format!("{}.{}", ctx.req_id, data_id);
     log_with_req_id(
-        ctx.req_id,
+        req_id,
         format!("{} LEN={}", msg_title, data.len().to_string().green()),
     );
     // 直接打印输出
@@ -318,7 +337,7 @@ fn display_data_msg(data: &[u8], msg_title: impl Display, ctx: Context) {
 
     if ctx.args.bytes_data {
         out_bytes.extend(
-            "\n-----BEGIN BYTES-----\n"
+            format!("\n-----BEGIN BYTES----- {}\n", msg_title)
                 .to_string()
                 .green()
                 .to_string()
@@ -332,7 +351,7 @@ fn display_data_msg(data: &[u8], msg_title: impl Display, ctx: Context) {
         let line_len: usize = ctx.args.hex_line;
 
         out_bytes.extend(
-            "\n-----BEGIN HEX-----\n"
+            format!("\n-----BEGIN HEX----- {}\n", msg_title)
                 .to_string()
                 .green()
                 .to_string()
