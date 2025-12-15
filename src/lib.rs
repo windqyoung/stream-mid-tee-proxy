@@ -10,6 +10,8 @@ use rustls::crypto::{CryptoProvider, verify_tls12_signature, verify_tls13_signat
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, Error, SignatureScheme};
 use std::fmt::Display;
+use std::fs;
+use std::fs::{create_dir_all};
 use std::io::{Write, stdout};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::{Arc, Mutex};
@@ -62,17 +64,27 @@ pub struct Args {
     /// 是否要hex下方显示ascii信息
     #[arg(long, default_value_t = false)]
     hex_ascii_bottom: bool,
+
+    /// 是否保存数据到文件中
+    #[arg(long, default_value_t = false)]
+    save: bool,
 }
 
 #[derive(Clone)]
 struct Context {
     args: Args,
     req_id: u64,
+    log_dir: String,
 }
 
 impl Context {
     fn new(args: Args, req_id: u64) -> Self {
-        Self { args, req_id }
+        let now = Zoned::now();
+        Self {
+            args,
+            req_id,
+            log_dir: format!("target/stream-log/{}-{:02}-{:02}T{:02}-{:02}-{:02}", now.year(), now.month(), now.day(), now.hour(), now.minute(), now.second()),
+        }
     }
 }
 
@@ -242,6 +254,7 @@ async fn bid_copy_stream<S1, S2>(
                 ),
                 ctx,
                 data_id,
+                "request".to_string(),
             )
             .await;
         });
@@ -257,6 +270,7 @@ async fn bid_copy_stream<S1, S2>(
         ),
         ctx,
         data_id,
+        "response".to_string(),
     )
     .await;
 }
@@ -267,14 +281,21 @@ async fn copy_reader_to_writer<D, R, W>(
     msg_title: D,
     ctx: Context,
     data_id: Arc<Mutex<u64>>,
+    stream_type: String,
 ) where
     D: Display,
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
+    if ctx.args.save {
+        let rs = create_dir_all(&ctx.log_dir);
+        show_msg(ctx.args.quiet, || {
+            log_with_req_id(ctx.req_id, format!("保存日志: {}, {}, {:?}", &ctx.log_dir, stream_type, rs));
+        });
+    }
+
     let mut buf = vec![0; 65536];
     loop {
-
         let rs = r.read(&mut buf).await;
 
         let use_data_id = {
@@ -293,6 +314,17 @@ async fn copy_reader_to_writer<D, R, W>(
             }
             Ok(size) => {
                 let data = &buf[..size];
+
+                if ctx.args.save {
+                    let save_filename = format!("{}/{}-{}.log", ctx.log_dir, ctx.req_id, stream_type);
+                    let mut fs = fs::File::options().create(true).write(true).append(true).open(save_filename).expect("创建日志文件失败");
+                    let rs = fs.write_all(data);
+                    match rs {
+                        Ok(_) => {}
+                        Err(_) => {}
+                    }
+                }
+
                 show_msg(ctx.args.quiet, || {
                     display_data_msg(data, &msg_title, ctx.clone(), use_data_id);
                 });
