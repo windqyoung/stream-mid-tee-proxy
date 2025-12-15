@@ -11,7 +11,7 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, Error, SignatureScheme};
 use std::fmt::Display;
 use std::fs;
-use std::fs::{create_dir_all};
+use std::fs::create_dir_all;
 use std::io::{Write, stdout};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::{Arc, Mutex};
@@ -78,14 +78,26 @@ struct Context {
 }
 
 impl Context {
-    fn new(args: Args, req_id: u64) -> Self {
-        let now = Zoned::now();
+    fn new(args: Args, req_id: u64, log_dir: String) -> Self {
         Self {
             args,
             req_id,
-            log_dir: format!("target/stream-log/{}-{:02}-{:02}T{:02}-{:02}-{:02}", now.year(), now.month(), now.day(), now.hour(), now.minute(), now.second()),
+            log_dir,
         }
     }
+}
+
+fn log_dir() -> String {
+    let now = Zoned::now();
+    format!(
+        "target/stream-log/{}-{:02}-{:02}T{:02}-{:02}-{:02}",
+        now.year(),
+        now.month(),
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second()
+    )
 }
 
 pub async fn cli_run(args: Args) -> CliResult {
@@ -109,15 +121,17 @@ pub async fn cli_run(args: Args) -> CliResult {
 
         panic!("bind error, 未找到相应的端口");
     };
-
     show_msg(args.quiet, || {
         log(format!("服务器启动: {} -> {:?}", server_addr, remove_server).green());
     });
 
     let mut req_id = 0;
+
+    let log_dir = log_dir();
+
     loop {
         req_id += 1;
-        let ctx = Context::new(args.clone(), req_id);
+        let ctx = Context::new(args.clone(), req_id, log_dir.clone());
 
         let (local_stream, _) = server.accept().await?;
 
@@ -290,7 +304,10 @@ async fn copy_reader_to_writer<D, R, W>(
     if ctx.args.save {
         let rs = create_dir_all(&ctx.log_dir);
         show_msg(ctx.args.quiet, || {
-            log_with_req_id(ctx.req_id, format!("保存日志: {}, {}, {:?}", &ctx.log_dir, stream_type, rs));
+            log_with_req_id(
+                ctx.req_id,
+                format!("保存日志: {}, {}, {:?}", &ctx.log_dir, stream_type, rs),
+            );
         });
     }
 
@@ -316,8 +333,14 @@ async fn copy_reader_to_writer<D, R, W>(
                 let data = &buf[..size];
 
                 if ctx.args.save {
-                    let save_filename = format!("{}/{}-{}.log", ctx.log_dir, ctx.req_id, stream_type);
-                    let mut fs = fs::File::options().create(true).write(true).append(true).open(save_filename).expect("创建日志文件失败");
+                    let save_filename =
+                        format!("{}/{}-{}.log", ctx.log_dir, ctx.req_id, stream_type);
+                    let mut fs = fs::File::options()
+                        .create(true)
+                        .write(true)
+                        .append(true)
+                        .open(save_filename)
+                        .expect("创建日志文件失败");
                     let rs = fs.write_all(data);
                     match rs {
                         Ok(_) => {}
