@@ -54,7 +54,7 @@ pub struct Args {
     bytes_data: bool,
 
     /// 是否使用hex输出
-    #[arg(long, default_value_t = true, action = ArgAction::Set)]
+    #[arg(long, default_value_t = false, action = ArgAction::Set)]
     hex: bool,
 
     /// hex显示使用的行宽
