@@ -1,6 +1,6 @@
 [package]
 name = "stream-mid-tee-proxy"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "无"
 description = "小工具,观察tcp流量"
@@ -17,5 +17,5 @@ tokio-rustls = "0.26.4"
 
 [package.metadata.generate-rpm]
 assets = [
-    { source = "target/release/stream-mid-tee-proxy", dest = "/usr/bin/stream-mid-tee-proxy", mode = "755" },
+    { source = "target/x86_64-unknown-linux-musl/release/stream-mid-tee-proxy", dest = "/usr/bin/stream-mid-tee-proxy", mode = "755" },
 ]

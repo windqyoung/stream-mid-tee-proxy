@@ -502,7 +502,7 @@ dependencies = [
 
 [[package]]
 name = "stream-mid-tee-proxy"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "colored",
