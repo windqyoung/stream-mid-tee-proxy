@@ -100,10 +100,13 @@ fn log_dir() -> String {
     )
 }
 
-pub async fn cli_run(args: Args) -> CliResult {
+pub async fn cli_run(mut args: Args) -> CliResult {
     let mut server_addr: SocketAddr = args.listen_addr.parse()?;
     // 提前解析, 防止后续错误
-    let remove_server = args.remote_target.to_socket_addrs()?;
+    let remote_server = args.remote_target.to_socket_addrs()?;
+    if let Some(addr) = remote_server.clone().next() && addr.port() == 443 {
+        args.remote_tls = true;
+    }
 
     let server = 'server: {
         for port_offset in 0..100 {
@@ -122,7 +125,7 @@ pub async fn cli_run(args: Args) -> CliResult {
         panic!("bind error, 未找到相应的端口");
     };
     show_msg(args.quiet, || {
-        log(format!("服务器启动: {} -> {:?}", server_addr, remove_server).green());
+        log(format!("服务器启动: {} -> {:?}", server_addr, remote_server).green());
     });
 
     let mut req_id = 0;
