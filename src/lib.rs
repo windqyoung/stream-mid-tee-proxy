@@ -101,31 +101,23 @@ fn log_dir() -> String {
 }
 
 pub async fn cli_run(mut args: Args) -> CliResult {
-    let mut server_addr: SocketAddr = args.listen_addr.parse()?;
     // 提前解析, 防止后续错误
     let remote_server = args.remote_target.to_socket_addrs()?;
-    if let Some(addr) = remote_server.clone().next() && addr.port() == 443 {
+    if let Some(addr) = remote_server.clone().next()
+        && addr.port() == 443
+    {
         args.remote_tls = true;
     }
 
-    let server = 'server: {
-        for port_offset in 0..100 {
-            server_addr.set_port(server_addr.port() + port_offset);
-            let bind_rs = TcpListener::bind(server_addr).await;
-            match bind_rs {
-                Ok(bind) => {
-                    break 'server bind;
-                }
-                Err(_) => {
-                    continue;
-                }
-            }
-        }
-
-        panic!("bind error, 未找到相应的端口");
-    };
+    let server_addr: SocketAddr = args.listen_addr.parse()?;
+    let server = create_listener(server_addr).await;
     show_msg(args.quiet, || {
-        log(format!("服务器启动: {} -> {:?}", server_addr, remote_server).green());
+        log(format!(
+            "服务器启动: {} -> {:?}",
+            server.local_addr().expect("获取监听地址"),
+            remote_server
+        )
+        .green());
     });
 
     let mut req_id = 0;
@@ -144,18 +136,37 @@ pub async fn cli_run(mut args: Args) -> CliResult {
     }
 }
 
+async fn create_listener(mut server_addr: SocketAddr) -> TcpListener {
+    let fix_port = server_addr.port();
+    for port_offset in 0..100 {
+        server_addr.set_port(fix_port + port_offset);
+        let bind_rs = TcpListener::bind(server_addr).await;
+        match bind_rs {
+            Ok(bind) => {
+                return bind;
+            }
+            Err(_) => {
+                continue;
+            }
+        }
+    }
+
+    panic!("bind error, 未找到相应的端口");
+}
+
 async fn process_accept(ctx: Context, local_stream: TcpStream) {
     let local_addr = local_stream.local_addr().expect("获取SocketAddr失败");
+    let peer_addr = local_stream.peer_addr().expect("获取客户端地址");
 
     show_msg(ctx.args.quiet, || {
-        log_with_req_id(ctx.req_id, format!("接收到连接: {}", local_addr,).green());
+        log_with_req_id(ctx.req_id, format!("接收到连接: {} on {}", peer_addr, local_addr,).green());
     });
 
-    let rs = process_stream(local_stream, local_addr, ctx.clone()).await;
+    let rs = process_stream(local_stream, ctx.clone()).await;
 
     show_msg(ctx.args.quiet, || {
         let close_msg = {
-            let msg = format!("连接处理完成: {}, {:?}", local_addr, rs);
+            let msg = format!("连接处理完成: {} on {}, {:?}", peer_addr, local_addr, rs);
             match rs {
                 Ok(_) => msg.green(),
                 Err(_) => msg.red(),
@@ -202,21 +213,21 @@ where
 
 async fn process_stream(
     local_stream: TcpStream,
-    local_addr: SocketAddr,
     ctx: Context,
 ) -> CliResult {
     if ctx.args.remote_tls {
-        process_stream_tls(local_stream, local_addr, ctx.clone()).await
+        process_stream_tls(local_stream, ctx.clone()).await
     } else {
-        process_stream_plain(local_stream, local_addr, ctx.clone()).await
+        process_stream_plain(local_stream, ctx.clone()).await
     }
 }
 
 async fn process_stream_plain(
     local_stream: TcpStream,
-    local_addr: SocketAddr,
     ctx: Context,
 ) -> CliResult {
+
+    let local_addr: SocketAddr = local_stream.local_addr().expect("获取中间服务地址");
     // 连接到远程
     let remote_stream: TcpStream = TcpStream::connect(&ctx.args.remote_target).await?;
 
@@ -397,7 +408,6 @@ fn display_data_msg(data: &[u8], msg_title: impl Display, ctx: Context, data_id:
     if ctx.args.bytes_data {
         out_bytes.extend(
             format!("\n-----BEGIN BYTES----- {}\n", msg_title)
-                .to_string()
                 .green()
                 .to_string()
                 .as_bytes(),
@@ -411,7 +421,6 @@ fn display_data_msg(data: &[u8], msg_title: impl Display, ctx: Context, data_id:
 
         out_bytes.extend(
             format!("\n-----BEGIN HEX----- {}\n", msg_title)
-                .to_string()
                 .green()
                 .to_string()
                 .as_bytes(),
@@ -533,9 +542,11 @@ impl ServerCertVerifier for MyCustomCertVerifier {
 
 async fn process_stream_tls(
     local_stream: TcpStream,
-    local_addr: SocketAddr,
     ctx: Context,
 ) -> CliResult {
+
+    let local_addr: SocketAddr = local_stream.local_addr().expect("获取中间服务地址");
+
     // 连接到远程
     let remote_stream: TcpStream = TcpStream::connect(&ctx.args.remote_target).await?;
 
