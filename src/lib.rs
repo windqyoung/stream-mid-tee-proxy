@@ -265,7 +265,8 @@ async fn bid_copy_stream<S1, S2>(
 
     let data_id = Arc::new(Mutex::new(0));
 
-    {
+    // 创建两个任务，分别处理本地到远程和远程到本地的数据传输
+    let task1 = {
         let data_id = Arc::clone(&data_id);
         let ctx = ctx.clone();
         let local_addr = local_addr.clone();
@@ -285,22 +286,32 @@ async fn bid_copy_stream<S1, S2>(
                 "request".to_string(),
             )
             .await;
-        });
-    }
+        })
+    };
 
-    copy_reader_to_writer(
-        remote_reader,
-        local_writer,
-        format!(
-            "{} <<<<< {}",
-            local_addr.to_string().yellow(),
-            remote_addr.to_string().green(),
-        ),
-        ctx,
-        data_id,
-        "response".to_string(),
-    )
-    .await;
+    let task2 = {
+        let data_id = Arc::clone(&data_id);
+        let ctx = ctx.clone();
+        spawn(async move {
+            // 远程 -> 本地
+            copy_reader_to_writer(
+                remote_reader,
+                local_writer,
+                format!(
+                    "{} <<<<< {}",
+                    local_addr.to_string().yellow(),
+                    remote_addr.to_string().green(),
+                ),
+                ctx,
+                data_id,
+                "response".to_string(),
+            )
+            .await;
+        })
+    };
+
+    // 等待两个任务完成，确保数据传输完全完成
+    let _ = tokio::try_join!(task1, task2);
 }
 
 async fn copy_reader_to_writer<D, R, W>(
