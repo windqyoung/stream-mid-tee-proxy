@@ -12,16 +12,33 @@ use rustls::{ClientConfig, DigitallySignedStruct, Error, SignatureScheme};
 use std::fmt::Display;
 use std::fs;
 use std::fs::create_dir_all;
-use std::io::{Write, stdout, ErrorKind};
+use std::io::{ErrorKind, Write, stdout};
 use std::net::{SocketAddr, ToSocketAddrs};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, split};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::spawn;
+use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
 
 type CliResult = Result<(), Box<dyn std::error::Error>>;
+
+static GLOBAL_SENDER: LazyLock<Mutex<Option<UnboundedSender<String>>>> =
+    LazyLock::new(|| return Mutex::new(None));
+
+async fn start_print_log_co() {
+    let (tx, mut rx) = unbounded_channel::<String>();
+
+    {
+        let mut lock = GLOBAL_SENDER.lock().expect("锁中毒1");
+        *lock = Some(tx);
+    }
+
+    while let Some(data) = rx.recv().await {
+        println!("[P{}]{}", line!(), data);
+    }
+}
 
 /// 代理tcp请求到远端服务器, 观察请求和响应的流量
 ///
@@ -120,6 +137,10 @@ pub async fn cli_run(mut args: Args) -> CliResult {
         .green());
     });
 
+    spawn(async {
+        start_print_log_co().await;
+    });
+
     let mut req_id = 0;
 
     let log_dir = log_dir();
@@ -202,7 +223,21 @@ where
     D: Display,
 {
     let msg = fmt_with_ts(msg);
-    println!("{}", msg);
+    let lock = GLOBAL_SENDER.lock().expect("锁中毒2");
+    match &*lock {
+        None => {
+            println!("[L1.{}]{}", line!(), msg.clone());
+        }
+        Some(tx) => {
+            let rs = tx.send(msg.clone());
+            match rs {
+                Ok(_) => {}
+                Err(_) => {
+                    println!("[L2.{}]{}", line!(), msg);
+                }
+            }
+        }
+    }
 }
 
 fn fmt_with_ts<D>(msg: D) -> String
@@ -406,8 +441,7 @@ async fn copy_reader_to_writer<D, R, W>(
                             format!("END:{}, err=UnexpectedEof", msg_title).green(),
                         );
                     });
-                }
-                else {
+                } else {
                     show_msg(ctx.args.quiet, || {
                         log_with_req_id(
                             ctx.req_id,
