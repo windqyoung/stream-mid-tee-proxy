@@ -12,7 +12,7 @@ use rustls::{ClientConfig, DigitallySignedStruct, Error, SignatureScheme};
 use std::fmt::Display;
 use std::fs;
 use std::fs::create_dir_all;
-use std::io::{Write, stdout};
+use std::io::{Write, stdout, ErrorKind};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, split};
@@ -159,7 +159,10 @@ async fn process_accept(ctx: Context, local_stream: TcpStream) {
     let peer_addr = local_stream.peer_addr().expect("获取客户端地址");
 
     show_msg(ctx.args.quiet, || {
-        log_with_req_id(ctx.req_id, format!("接收到连接: {} on {}", peer_addr, local_addr,).green());
+        log_with_req_id(
+            ctx.req_id,
+            format!("接收到连接: {} on {}", peer_addr, local_addr,).green(),
+        );
     });
 
     let rs = process_stream(local_stream, ctx.clone()).await;
@@ -211,10 +214,7 @@ where
     format!("[{}]{}", now, msg)
 }
 
-async fn process_stream(
-    local_stream: TcpStream,
-    ctx: Context,
-) -> CliResult {
+async fn process_stream(local_stream: TcpStream, ctx: Context) -> CliResult {
     if ctx.args.remote_tls {
         process_stream_tls(local_stream, ctx.clone()).await
     } else {
@@ -222,11 +222,7 @@ async fn process_stream(
     }
 }
 
-async fn process_stream_plain(
-    local_stream: TcpStream,
-    ctx: Context,
-) -> CliResult {
-
+async fn process_stream_plain(local_stream: TcpStream, ctx: Context) -> CliResult {
     let local_addr: SocketAddr = local_stream.local_addr().expect("获取中间服务地址");
     // 连接到远程
     let remote_stream: TcpStream = TcpStream::connect(&ctx.args.remote_target).await?;
@@ -336,6 +332,17 @@ async fn copy_reader_to_writer<D, R, W>(
         });
     }
 
+    async fn close_write<D, W>(mut w: W, msg_title: D, ctx: Context)
+    where
+        D: Display,
+        W: AsyncWrite + Unpin,
+    {
+        let rs = w.shutdown().await;
+        show_msg(ctx.args.quiet, || {
+            log_with_req_id(ctx.req_id, format!("关闭连接: {}, {:?}", msg_title, rs));
+        });
+    }
+
     let mut buf = vec![0; 65536];
     loop {
         let rs = r.read(&mut buf).await;
@@ -392,16 +399,28 @@ async fn copy_reader_to_writer<D, R, W>(
                 }
             }
             Err(err) => {
-                show_msg(ctx.args.quiet, || {
-                    log_with_req_id(
-                        ctx.req_id,
-                        format!("ERR:{}, err={:?}", msg_title, err).red(),
-                    );
-                });
+                if err.kind() == ErrorKind::UnexpectedEof {
+                    show_msg(ctx.args.quiet, || {
+                        log_with_req_id(
+                            ctx.req_id,
+                            format!("END:{}, err=UnexpectedEof", msg_title).green(),
+                        );
+                    });
+                }
+                else {
+                    show_msg(ctx.args.quiet, || {
+                        log_with_req_id(
+                            ctx.req_id,
+                            format!("ERR:{}, err={:?}", msg_title, err).red(),
+                        );
+                    });
+                }
                 break;
             }
         }
     }
+
+    close_write(w, msg_title, ctx).await;
 }
 
 fn display_data_msg(data: &[u8], msg_title: impl Display, ctx: Context, data_id: u64) {
@@ -551,11 +570,7 @@ impl ServerCertVerifier for MyCustomCertVerifier {
     }
 }
 
-async fn process_stream_tls(
-    local_stream: TcpStream,
-    ctx: Context,
-) -> CliResult {
-
+async fn process_stream_tls(local_stream: TcpStream, ctx: Context) -> CliResult {
     let local_addr: SocketAddr = local_stream.local_addr().expect("获取中间服务地址");
 
     // 连接到远程
