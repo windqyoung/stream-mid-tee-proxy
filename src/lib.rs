@@ -85,6 +85,11 @@ pub struct Args {
     /// 是否保存数据到文件中
     #[arg(long, default_value_t = false)]
     save: bool,
+
+    /// 默认使用 pingora 来代理 http 请示.
+    /// 可以切换成 tcp 流量代理.
+    #[arg(long, default_value_t = false, action = ArgAction::Set)]
+    tcp: bool,
 }
 
 #[derive(Clone)]
@@ -118,6 +123,17 @@ fn log_dir() -> String {
 }
 
 pub async fn cli_run(mut args: Args) -> CliResult {
+    if args.tcp {
+        tcp_run(args).await
+    }
+    else {
+        pingora_run(args).await
+    }
+}
+
+
+
+async fn tcp_run(mut args: Args) -> CliResult {
     // 提前解析, 防止后续错误
     let remote_server = args.remote_target.to_socket_addrs()?;
     if let Some(addr) = remote_server.clone().next()
@@ -134,7 +150,7 @@ pub async fn cli_run(mut args: Args) -> CliResult {
             server.local_addr().expect("获取监听地址"),
             remote_server
         )
-        .green());
+            .green());
     });
 
     spawn(async {
@@ -645,4 +661,11 @@ async fn connect_with_tls(stream: TcpStream) -> TlsStream<TcpStream> {
         .expect("连接远端服务器错误");
 
     stream
+}
+
+
+async fn pingora_run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    println!("pingora TODO");
+
+    Ok(())
 }
