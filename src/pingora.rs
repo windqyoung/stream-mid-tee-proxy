@@ -211,7 +211,7 @@ impl ProxyHttp for UpstreamProxy {
                     .client_addr()
                     .map_or(String::from("无客户端地址"), |x| x.to_string())
                     .yellow(),
-                ctx.args.remote_target.to_string().yellow()
+                ctx.args.remote_target.to_string().green()
             );
             log_with_req_id(ctx.req_id, msg_title);
             log_with_req_id(ctx.req_id, format!("{:?}", upstream_response));
