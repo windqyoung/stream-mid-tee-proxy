@@ -5,23 +5,17 @@ mod log;
 mod args;
 mod tcp;
 mod context;
+mod pingora;
 
 pub use args::Args;
 use crate::context::CliResult;
 
-pub async fn cli_run(args: Args) -> CliResult {
+pub fn cli_run(args: Args) -> CliResult {
     if args.tcp {
-        tcp::tcp_run(args).await
+        tcp::tcp_run(args)
     }
     else {
-        pingora_run(args).await
+        pingora::pingora_run(args)
     }
 }
 
-
-
-async fn pingora_run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    println!("pingora TODO");
-
-    Ok(())
-}
