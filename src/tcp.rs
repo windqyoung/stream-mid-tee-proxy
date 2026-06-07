@@ -2,7 +2,7 @@ use crate::log::{display_data_msg, log_with_req_id, show_msg};
 use colored::Colorize;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::aws_lc_rs::default_provider;
-use rustls::crypto::{verify_tls12_signature, verify_tls13_signature, CryptoProvider};
+use rustls::crypto::{CryptoProvider, verify_tls12_signature, verify_tls13_signature};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, Error, SignatureScheme};
 use std::fmt::Display;
@@ -11,17 +11,24 @@ use std::fs::create_dir_all;
 use std::io::{ErrorKind, Write};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::{Arc, Mutex};
-use tokio::io::{split, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, split};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::spawn;
-use tokio_rustls::client::TlsStream;
 use tokio_rustls::TlsConnector;
+use tokio_rustls::client::TlsStream;
 
-
-use crate::{log, Args};
 use crate::context::{CliResult, Context};
+use crate::{Args, log};
 
-pub(crate) async fn tcp_run(mut args: Args) -> CliResult {
+pub(crate) fn tcp_run(args: Args) -> CliResult {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("failed to build tokio runtime")
+        .block_on(async { tcp_run_inner(args).await })
+}
+
+async fn tcp_run_inner(mut args: Args) -> CliResult {
     // 提前解析, 防止后续错误
     let remote_server = args.remote_target.to_socket_addrs()?;
     if let Some(addr) = remote_server.clone().next()
@@ -33,12 +40,15 @@ pub(crate) async fn tcp_run(mut args: Args) -> CliResult {
     let server_addr: SocketAddr = args.listen_addr.parse()?;
     let server = create_listener(server_addr).await;
     show_msg(args.quiet, || {
-        log::log(format!(
-            "服务器启动: {} -> {:?}",
-            server.local_addr().expect("获取监听地址"),
-            remote_server
-        )
-            .green());
+        log::log(
+            format!(
+                "服务器启动: {} -> {:?}, 启动参数: {:?}",
+                server.local_addr().expect("获取监听地址"),
+                remote_server,
+                args
+            )
+            .green(),
+        );
     });
 
     spawn(async {
@@ -104,8 +114,6 @@ async fn process_accept(ctx: Context, local_stream: TcpStream) {
     });
 }
 
-
-
 async fn process_stream(local_stream: TcpStream, ctx: Context) -> CliResult {
     if ctx.args.remote_tls {
         process_stream_tls(local_stream, ctx.clone()).await
@@ -132,7 +140,7 @@ async fn process_stream_plain(local_stream: TcpStream, ctx: Context) -> CliResul
         local_addr.to_string(),
         remote_addr.to_string(),
     )
-        .await;
+    .await;
 
     Ok(())
 }
@@ -173,7 +181,7 @@ async fn bid_copy_stream<S1, S2>(
                 data_id,
                 "request".to_string(),
             )
-                .await;
+            .await;
         })
     };
 
@@ -194,7 +202,7 @@ async fn bid_copy_stream<S1, S2>(
                 data_id,
                 "response".to_string(),
             )
-                .await;
+            .await;
         })
     };
 
@@ -384,7 +392,7 @@ async fn process_stream_tls(local_stream: TcpStream, ctx: Context) -> CliResult 
         local_addr.to_string(),
         remote_addr.to_string(),
     )
-        .await;
+    .await;
 
     Ok(())
 }
@@ -405,4 +413,3 @@ async fn connect_with_tls(stream: TcpStream) -> TlsStream<TcpStream> {
 
     stream
 }
-
