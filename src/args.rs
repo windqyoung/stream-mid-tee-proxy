@@ -50,4 +50,12 @@ pub struct Args {
     /// 可以切换成 tcp 流量代理.
     #[arg(long, default_value_t = false)]
     pub(crate) tcp: bool,
+
+    /// 使用的http host头. 同时当做sni在用
+    #[arg(long)]
+    pub(crate) host: Option<String>,
+
+    /// 要额外添加的http头
+    #[arg(long)]
+    pub(crate) header: Vec<String>,
 }
