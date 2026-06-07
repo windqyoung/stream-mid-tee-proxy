@@ -1,6 +1,8 @@
 use colored::Colorize;
 use jiff::Zoned;
 use std::fmt::Display;
+use std::fs;
+use std::fs::create_dir_all;
 use std::io::{Write, stdout};
 use std::sync::{LazyLock, Mutex};
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
@@ -20,6 +22,12 @@ pub(crate) async fn start_print_log_co() {
 
     {
         let mut lock = GLOBAL_SENDER.lock().expect("锁中毒1");
+
+        if (*lock).is_some() {
+            eprintln!("全局日志第二次启动, 忽略...");
+            return;
+        }
+
         *lock = Some(tx);
     }
 
@@ -211,4 +219,31 @@ pub fn chunk_to_hex_ascii(chunk: &[u8]) -> Vec<u8> {
         }
     }
     hex_ascii_line
+}
+
+pub(crate) fn save(ctx: &Context, stream_type: String, data: &[u8]) {
+    if !ctx.args.save {
+        return;
+    }
+
+    let rs = create_dir_all(&ctx.log_dir);
+    show_msg(ctx.args.quiet, || {
+        log_with_req_id(
+            ctx.req_id,
+            format!("保存日志: {}, {}, {:?}", &ctx.log_dir, stream_type, rs),
+        );
+    });
+
+    let save_filename = format!("{}/{}-{}.log", ctx.log_dir, ctx.req_id, stream_type);
+    let mut fs = fs::File::options()
+        .create(true)
+        .write(true)
+        .append(true)
+        .open(save_filename)
+        .expect("创建日志文件失败");
+    let rs = fs.write_all(data);
+    match rs {
+        Ok(_) => {}
+        Err(_) => {}
+    }
 }
