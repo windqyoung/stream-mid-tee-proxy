@@ -6,6 +6,7 @@ pub(crate) type CliResult = Result<(), Box<dyn std::error::Error>>;
 pub(crate) struct Context {
     pub(crate) args: Args,
     pub(crate) req_id: u64,
+    pub(crate) sub_id: u64,
     pub(crate) log_dir: String,
 }
 
@@ -14,6 +15,7 @@ impl Context {
         Self {
             args,
             req_id,
+            sub_id: 0,
             log_dir,
         }
     }
