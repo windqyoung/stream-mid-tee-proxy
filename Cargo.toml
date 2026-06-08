@@ -1,6 +1,6 @@
 [package]
 name = "stream-mid-tee-proxy"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 license = "无"
 description = "小工具,观察tcp流量"
