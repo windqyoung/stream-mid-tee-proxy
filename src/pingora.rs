@@ -28,7 +28,7 @@ pub(crate) fn pingora_run(mut args: Args) -> Result<(), Box<dyn std::error::Erro
 
     let back_svc = background_service("日志", LogBackgroundService { args: args.clone() });
 
-    my_server.add_service(back_svc);
+    let back_hd = my_server.add_service(back_svc);
 
     // 添加代理端口
     let mut upstream_service =
@@ -36,7 +36,8 @@ pub(crate) fn pingora_run(mut args: Args) -> Result<(), Box<dyn std::error::Erro
 
     upstream_service.add_tcp(&args.listen_addr.clone());
 
-    my_server.add_service(upstream_service);
+    let up_hd = my_server.add_service(upstream_service);
+    up_hd.add_dependency(&back_hd);
 
     my_server.run(Default::default());
 
