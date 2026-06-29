@@ -9,6 +9,9 @@ use clap::{ArgAction, Parser};
 /// 如果使用 http, 可以提供 `Accept-Encoding: identity` 禁用压缩.
 ///
 /// 可以从页面`https://curl.se/docs/caextract.html` 下载 cacert.pem, 使用环境变量 SSL_CERT_FILE 指定文件路径.
+/// 
+/// https://github.com/windqyoung/stream-mid-tee-proxy.git
+/// 
 #[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about)]
 pub struct Args {
