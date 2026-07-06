@@ -56,11 +56,15 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     pub(crate) tcp: bool,
 
+    /// 直接使用双向流量复制, 不做任何中间的处理. 类似nginx的stream proxy.
+    #[arg(long, default_value_t = false)]
+    pub(crate) bid: bool,
+
     /// 使用的http host头. 同时当做sni在用
     #[arg(long)]
     pub(crate) host: Option<String>,
 
-    /// 要额外添加的http头
+    /// 要额外添加的http头, 多选, 每一项是一个http头. 比如 --header "x-hd1: hd1v" --header "x-hd2: hd2v"
     #[arg(long)]
     pub(crate) header: Vec<String>,
 }
