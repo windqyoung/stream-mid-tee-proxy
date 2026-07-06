@@ -29,8 +29,9 @@ async fn bid_inner_run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         match accept_rs {
             Ok((stream, _)) => {
                 let sid = sid.fetch_add(1, Ordering::SeqCst);
-                tokio::spawn(async {
-                    process_bid_copy(stream, remote_addr.clone(), sid).await;
+                let remote_addr = remote_addr.clone();
+                tokio::spawn(async move {
+                    process_bid_copy(stream, remote_addr, sid).await;
                 });
             }
             Err(err) => {
