@@ -1,0 +1,87 @@
+name: Build
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  linux-musl:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # x86_64 直接在 runner 上原生构建, 只用 musl-tools
+          - target: x86_64-unknown-linux-musl
+            use_cross: false
+          # aarch64 交叉编译走 cross (容器自带 musl 工具链 + qemu)
+          - target: aarch64-unknown-linux-musl
+            use_cross: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: |
+          rustup update stable --no-self-update
+          rustup target add ${{ matrix.target }}
+
+      - name: Install musl tools
+        if: ${{ !matrix.use_cross }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+
+      - name: Install cross
+        if: ${{ matrix.use_cross }}
+        run: cargo install cross --locked
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          CARGO="${{ matrix.use_cross && 'cross' || 'cargo' }}"
+          "$CARGO" build --release --target ${{ matrix.target }}
+
+      - name: Package
+        id: package
+        run: |
+          set -euo pipefail
+          BIN="target/${{ matrix.target }}/release/stream-mid-tee-proxy"
+          strip "$BIN" || true
+          ASSET="stream-mid-tee-proxy-${{ matrix.target }}.tar.gz"
+          tar -czf "$ASSET" -C "$(dirname "$BIN")" stream-mid-tee-proxy
+          echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: ${{ steps.package.outputs.asset }}
+
+  release:
+    name: Release
+    needs: linux-musl
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.tar.gz
+          generate_release_notes: true
